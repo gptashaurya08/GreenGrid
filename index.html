@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GreenGrid: Sustainable Campus Simulator</title>
+<style>
+:root{--g:#1f6f50;--gd:#14392b;--gl:#dff1e8;--a:#f2b84b;--r:#b3382c;--road:#c9cdd1;--open:#eef7f2;--bld:#e4d8c4}
+*{box-sizing:border-box}
+body{margin:0;font-family:system-ui,Segoe UI,Roboto,sans-serif;color:var(--gd);background:#f6faf8}
+header{background:var(--g);color:#fff;padding:14px 20px;text-align:center}
+header h1{margin:0;font-size:1.3rem}
+header p{margin:4px 0 0;font-size:.85rem;opacity:.9}
+main{display:grid;grid-template-columns:190px 1fr 220px;gap:14px;max-width:1000px;margin:16px auto;padding:0 12px}
+section{background:#fff;border:2px solid var(--g);border-radius:10px;padding:10px}
+h2{font-size:.95rem;margin:0 0 8px;text-align:center}
+.fac{display:block;width:100%;margin-bottom:8px;padding:8px;border:2px solid var(--g);background:#fff;border-radius:10px;cursor:pointer;font:inherit;text-align:left;color:inherit}
+.fac small{display:block;opacity:.75}
+.fac.sel{background:var(--a)}
+.fac:focus-visible,.cell:focus-visible,button:focus-visible{outline:3px solid #000;outline-offset:1px}
+#grid{display:grid;grid-template-columns:repeat(8,1fr);gap:3px;max-width:480px;margin:0 auto}
+.cell{aspect-ratio:1;border:1px solid #9cc9b4;border-radius:4px;font-size:clamp(14px,3vw,24px);display:flex;align-items:center;justify-content:center;cursor:pointer;padding:0;position:relative}
+.cell.O{background:var(--open)}.cell.R{background:var(--road)}.cell.B{background:var(--bld)}
+.cell .bi{position:absolute;top:0;left:2px;font-size:.55em}
+.cell.bad{animation:shake .3s}
+@keyframes shake{25%{transform:translateX(-3px)}75%{transform:translateX(3px)}}
+.legend{display:flex;flex-wrap:wrap;gap:10px;justify-content:center;font-size:.75rem;margin-top:8px}
+.legend i{display:inline-block;width:12px;height:12px;border:1px solid #777;vertical-align:middle;margin-right:4px}
+#msg{min-height:1.4em;text-align:center;font-size:.85rem;margin-top:8px}
+.stat{border:2px solid var(--g);border-radius:10px;padding:6px 8px;margin-bottom:8px;font-size:.85rem}
+.stat b{display:block;font-size:1.1rem}
+.stat.score{background:var(--a)}
+.bar{height:6px;background:#dde;border-radius:3px;margin-top:4px;overflow:hidden}
+.bar span{display:block;height:100%;background:var(--g);width:0;transition:width .3s}
+.btns{display:flex;gap:8px;margin-top:6px}
+button.act{flex:1;padding:8px;border-radius:8px;border:2px solid var(--g);background:var(--g);color:#fff;font:inherit;cursor:pointer}
+button.act.alt{background:#fff;color:var(--g)}
+#result{display:none;position:fixed;inset:0;background:rgba(0,0,0,.55);align-items:center;justify-content:center;padding:16px}
+#result .box{background:#fff;border-radius:12px;padding:20px;max-width:420px;width:100%}
+#result h2{font-size:1.2rem}
+@media(max-width:760px){main{grid-template-columns:1fr}.facs{display:grid;grid-template-columns:repeat(2,1fr);gap:6px}.fac{margin:0}}
+@media(prefers-reduced-motion:reduce){.cell.bad{animation:none}.bar span{transition:none}}
+</style>
+</head>
+<body>
+<header>
+  <h1>GreenGrid: Sustainable Campus Simulator</h1>
+  <p>Plan a greener campus. Pick a facility, click a free cell, and watch your sustainability score.</p>
+</header>
+<main>
+  <section aria-label="Facilities">
+    <h2>Facilities</h2>
+    <div class="facs" id="facs"></div>
+    <button class="fac" id="removeBtn">🧹 Remove<small>Refund 50%</small></button>
+  </section>
+  <section aria-label="Campus grid">
+    <h2>Campus Grid (click to place)</h2>
+    <div id="grid"></div>
+    <div class="legend">
+      <span><i style="background:var(--open)"></i>Open land</span>
+      <span><i style="background:var(--bld)"></i>Building</span>
+      <span><i style="background:var(--road)"></i>Road</span>
+    </div>
+    <div id="msg" role="status" aria-live="polite">Select a facility to begin.</div>
+  </section>
+  <section aria-label="Dashboard">
+    <h2>Dashboard</h2>
+    <div class="stat">Budget left<b id="budget"></b></div>
+    <div class="stat">Energy saved<b id="energy"></b><div class="bar"><span id="bEnergy"></span></div></div>
+    <div class="stat">Water saved<b id="water"></b><div class="bar"><span id="bWater"></span></div></div>
+    <div class="stat">Waste reduced<b id="waste"></b><div class="bar"><span id="bWaste"></span></div></div>
+    <div class="stat">Green cover<b id="green"></b><div class="bar"><span id="bGreen"></span></div></div>
+    <div class="stat score">Sustainability Score<b id="score"></b></div>
+    <div class="btns">
+      <button class="act" id="finish">Finish</button>
+      <button class="act alt" id="reset">Reset</button>
+    </div>
+  </section>
+</main>
+<div id="result" role="dialog" aria-modal="true"><div class="box">
+  <h2>Final Result</h2>
+  <p id="resText"></p>
+  <button class="act" id="closeRes">Keep playing</button>
+</div></div>
+
+<script>
+// ---- Facility data (same fields planned for facilities.json) ----
+const FACILITIES = {
+  tree:  {icon:"🌳", name:"Tree",               cost:150, on:["O"],     energy:5,  water:20,  waste:0, green:1, rule:"Trees go on open land."},
+  solar: {icon:"☀️", name:"Solar panel",        cost:800, on:["O","B"], energy:40, water:0,   waste:0, green:0, rule:"Solar panels go on open land or building roofs."},
+  bin:   {icon:"🗑️", name:"Waste bin",          cost:100, on:["O"],     energy:0,  water:0,   waste:8, green:0, rule:"Bins go on open land next to a building or road.", near:["B","R"]},
+  cycle: {icon:"🚲", name:"Cycle track",        cost:300, on:["R"],     energy:10, water:0,   waste:0, green:0, rule:"Cycle tracks go on roads."},
+  rain:  {icon:"💧", name:"Rainwater harvesting",cost:600, on:["B"],    energy:0,  water:300, waste:0, green:0, rule:"Rainwater systems go on building roofs."}
+};
+const TARGET = {energy:150, water:900, waste:40, green:8};   // each category is worth 25 points
+const START_BUDGET = 5000, SIZE = 8;
+const MAP = ["OOBBOOBB","OOBBOOBB","RRRRRRRR","OOORROOO","OBBROBBO","OBBROBBO","RRRRRRRR","OOOOOOOO"];
+
+let cells, budget, selected = null;
+
+const $ = id => document.getElementById(id);
+const say = (t, bad) => { $("msg").textContent = t; };
+
+function init(){
+  cells = MAP.join("").split("").map(b => ({base:b, fac:null}));
+  budget = START_BUDGET; selected = null;
+  buildToolbar(); buildGrid(); update();
+  say("Select a facility to begin.");
+}
+
+function buildToolbar(){
+  const box = $("facs"); box.innerHTML = "";
+  for (const k in FACILITIES){
+    const f = FACILITIES[k], b = document.createElement("button");
+    b.className = "fac"; b.dataset.k = k;
+    b.innerHTML = `${f.icon} ${f.name}<small>Cost: ${f.cost}</small>`;
+    b.onclick = () => choose(k);
+    box.appendChild(b);
+  }
+  $("removeBtn").classList.remove("sel");
+}
+
+function choose(k){
+  selected = k;
+  document.querySelectorAll(".fac").forEach(b => b.classList.toggle("sel", b.dataset.k === k));
+  $("removeBtn").classList.toggle("sel", k === "remove");
+  say(k === "remove" ? "Click a facility to remove it." : FACILITIES[k].rule);
+}
+$("removeBtn").onclick = () => choose("remove");
+
+function buildGrid(){
+  const g = $("grid"); g.innerHTML = "";
+  cells.forEach((c, i) => {
+    const b = document.createElement("button");
+    b.className = "cell " + c.base; b.dataset.i = i;
+    b.onclick = () => place(i);
+    g.appendChild(b);
+  });
+  cells.forEach((_, i) => draw(i));
+}
+
+function draw(i){
+  const c = cells[i], el = $("grid").children[i], names = {O:"open land",B:"building",R:"road"};
+  let h = c.fac ? FACILITIES[c.fac].icon : (c.base === "B" ? "🏢" : "");
+  if (c.fac && c.base === "B") h += '<span class="bi">🏢</span>';
+  el.innerHTML = h;
+  el.setAttribute("aria-label", `Row ${Math.floor(i/SIZE)+1}, column ${i%SIZE+1}, ${names[c.base]}${c.fac ? ", " + FACILITIES[c.fac].name : ""}`);
+}
+
+function neighbours(i){
+  const r = Math.floor(i/SIZE), c = i % SIZE, out = [];
+  [[-1,0],[1,0],[0,-1],[0,1]].forEach(([dr,dc]) => {
+    const nr = r+dr, nc = c+dc;
+    if (nr>=0 && nr<SIZE && nc>=0 && nc<SIZE) out.push(nr*SIZE+nc);
+  });
+  return out;
+}
+
+function reject(i, text){
+  const el = $("grid").children[i];
+  el.classList.remove("bad"); void el.offsetWidth; el.classList.add("bad");
+  say("⚠ " + text);
+}
+
+function place(i){
+  if (!selected){ say("Select a facility first."); return; }
+  const c = cells[i];
+  if (selected === "remove"){
+    if (!c.fac){ say("Nothing to remove here."); return; }
+    budget += Math.round(FACILITIES[c.fac].cost / 2);
+    say(FACILITIES[c.fac].name + " removed. 50% refunded.");
+    c.fac = null; draw(i); update(); return;
+  }
+  const f = FACILITIES[selected];
+  if (c.fac) return reject(i, "This cell already has a facility.");
+  if (!f.on.includes(c.base)) return reject(i, f.rule);
+  if (f.near && !neighbours(i).some(n => f.near.includes(cells[n].base))) return reject(i, f.rule);
+  if (budget < f.cost) return reject(i, "Not enough budget for " + f.name + ".");
+  budget -= f.cost; c.fac = selected;
+  say(f.name + " placed.");
+  draw(i); update();
+}
+
+function totals(){
+  const t = {energy:0, water:0, waste:0, green:0};
+  cells.forEach(c => { if (c.fac) for (const k in t) t[k] += FACILITIES[c.fac][k]; });
+  return t;
+}
+function score(t){
+  let s = 0;
+  for (const k in TARGET) s += Math.min(1, t[k] / TARGET[k]) * 25;
+  return Math.round(s);
+}
+
+function update(){
+  const t = totals();
+  $("budget").textContent = budget;
+  $("energy").textContent = t.energy + " kWh/day";
+  $("water").textContent = t.water + " L/day";
+  $("waste").textContent = t.waste + " kg/day";
+  $("green").textContent = t.green + " trees";
+  $("score").textContent = score(t) + " / 100";
+  const bars = {Energy:"energy", Water:"water", Waste:"waste", Green:"green"};
+  for (const n in bars) $("b" + n).style.width = Math.min(100, t[bars[n]] / TARGET[bars[n]] * 100) + "%";
+}
+
+$("finish").onclick = () => {
+  const t = totals(), s = score(t);
+  const weak = Object.keys(TARGET).filter(k => t[k] / TARGET[k] < 0.5);
+  const names = {energy:"energy saving", water:"water saving", waste:"waste management", green:"green cover"};
+  let fb = s >= 80 ? "Excellent! Your campus is very sustainable." : s >= 50 ? "Good work. Your campus is getting greener." : "A start, but your campus needs more sustainable facilities.";
+  if (weak.length) fb += " Try improving: " + weak.map(k => names[k]).join(", ") + ".";
+  $("resText").textContent = `Final score: ${s} / 100. Budget left: ${budget}. ${fb}`;
+  $("result").style.display = "flex";
+};
+$("closeRes").onclick = () => $("result").style.display = "none";
+$("reset").onclick = init;
+init();
+</script>
+</body>
+</html>
